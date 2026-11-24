@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Starfleet Chooser</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body {
+    width:100%; height:100%; overflow:hidden; touch-action:none;
+    user-select:none; -webkit-user-select:none;
+    background:#000;
+    font-family: 'Courier New', 'Lucida Console', 'Consolas', monospace;
+    color:#fff;
+  }
+  #stars { position:fixed; inset:0; pointer-events:none; z-index:0; }
+  #board { position:fixed; inset:0; overflow:hidden; z-index:1; }
+
+  /* LCARS frame */
+  .lcars-bar {
+    position:absolute; left:0; right:0; height:5px; z-index:5; pointer-events:none;
+  }
+  .lcars-bar.top {
+    top:0;
+    background:linear-gradient(90deg,#f90 0%,#fc3 25%,#c6f 55%,#48f 100%);
+  }
+  .lcars-bar.bottom {
+    bottom:0;
+    background:linear-gradient(90deg,#48f 0%,#c6f 45%,#fc3 75%,#f90 100%);
+  }
+  .lcars-side {
+    position:absolute; top:5px; bottom:5px; width:4px; z-index:5; pointer-events:none;
+  }
+  .lcars-side.left  { left:0;  background:linear-gradient(180deg,#f90,#48f); }
+  .lcars-side.right { right:0; background:linear-gradient(180deg,#48f,#f90); }
+
+  /* Header / footer labels */
+  #header {
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    font-size:11px; letter-spacing:4px; color:rgba(255,153,0,.55);
+    pointer-events:none; white-space:nowrap; z-index:6;
+  }
+  #footer-label {
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    font-size:9px; letter-spacing:3px; color:rgba(255,153,0,.3);
+    pointer-events:none; white-space:nowrap; z-index:6;
+  }
+
+  .hint {
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    text-align:center; pointer-events:none; padding:20px;
+    transition:opacity .35s;
+  }
+  .hint.hidden { opacity:0; }
+  .hint .delta { font-size:48px; display:block; margin-bottom:12px; opacity:.35; line-height:1; }
+  .hint .big {
+    display:block; font-size:16px; font-weight:700;
+    color:#f90; letter-spacing:4px; text-transform:uppercase; margin-bottom:10px;
+  }
+  .hint .sub { font-size:10px; color:rgba(255,204,68,.4); letter-spacing:2px; line-height:2; }
+
+  /* Touch nodes */
+  .finger {
+    position:absolute; width:130px; height:130px;
+    border-radius:50%; transform:translate(-50%,-50%);
+    pointer-events:none; transition:opacity .5s;
+  }
+  .finger .ring {
+    position:absolute; inset:0; border-radius:50%;
+    border:3px solid var(--c);
+    box-shadow:0 0 28px var(--c), inset 0 0 14px var(--c);
+    animation:rPulse 1.5s ease-in-out infinite;
+  }
+  .finger .sweep {
+    position:absolute; inset:8%; border-radius:50%;
+    border:2px solid transparent;
+    border-top-color:var(--c); border-right-color:var(--c);
+    opacity:.55; animation:spin 2.8s linear infinite;
+  }
+  .finger .sweep2 {
+    position:absolute; inset:18%; border-radius:50%;
+    border:1px solid transparent;
+    border-bottom-color:var(--c);
+    opacity:.35; animation:spin 1.9s linear infinite reverse;
+  }
+  .finger .core {
+    position:absolute; inset:30%; border-radius:50%;
+    background:var(--c); opacity:.28; filter:blur(3px);
+  }
+  .finger .ico {
+    position:absolute; inset:0; display:flex;
+    align-items:center; justify-content:center;
+    font-size:26px; opacity:.5;
+  }
+  @keyframes spin    { to { transform:rotate(360deg); } }
+  @keyframes rPulse  { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.07);opacity:.7} }
+  .finger.counting .ring { animation:cPulse .6s ease-in-out infinite; }
+  @keyframes cPulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.25)} }
+  .finger.loser  { opacity:.07; }
+  .finger.winner { z-index:10; }
+  .finger.winner .ring {
+    animation:win .65s ease-out infinite alternate;
+    border-width:7px;
+  }
+  .finger.winner .core { opacity:.75; }
+  @keyframes win {
+    from { transform:scale(1.3); box-shadow:0 0 55px var(--c),inset 0 0 35px var(--c); }
+    to   { transform:scale(1.85); box-shadow:0 0 120px var(--c),inset 0 0 70px var(--c); }
+  }
+
+  #status {
+    position:absolute; top:32px; left:50%;
+    transform:translateX(-50%);
+    font-size:12px; font-weight:700; letter-spacing:5px;
+    text-transform:uppercase; white-space:nowrap;
+    pointer-events:none; opacity:0; transition:opacity .3s;
+    text-shadow:0 0 18px currentColor;
+  }
+  #status.show { opacity:1; }
+
+  #countdown {
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    font-size:190px; font-weight:900;
+    color:#fc3; text-shadow:0 0 60px #f90, 0 0 120px #f90;
+    pointer-events:none; opacity:0;
+  }
+  #countdown.show { animation:cdPop .65s ease-out forwards; }
+  @keyframes cdPop {
+    0%  { transform:translate(-50%,-50%) scale(.3); opacity:0; }
+    45% { transform:translate(-50%,-50%) scale(1.15); opacity:1; }
+    100%{ transform:translate(-50%,-50%) scale(1); opacity:1; }
+  }
+
+  #reset {
+    position:absolute; bottom:32px; left:50%;
+    transform:translateX(-50%);
+    background:transparent; color:#f90;
+    border:2px solid #f90;
+    box-shadow:0 0 14px rgba(255,153,0,.5), inset 0 0 8px rgba(255,153,0,.07);
+    padding:12px 28px; border-radius:3px;
+    font-family:'Courier New','Lucida Console',monospace;
+    font-size:12px; font-weight:700; letter-spacing:4px;
+    text-transform:uppercase; cursor:pointer;
+    opacity:0; pointer-events:none;
+    transition:opacity .3s, transform .15s, box-shadow .15s;
+    z-index:20;
+  }
+  #reset.show { opacity:1; pointer-events:auto; }
+  #reset:active { transform:translateX(-50%) scale(.95); box-shadow:0 0 32px #f90; }
+
+  #badge {
+    position:absolute; top:32px; right:16px;
+    border:1px solid rgba(255,153,0,.35);
+    background:rgba(255,153,0,.07);
+    padding:5px 12px; border-radius:2px;
+    font-size:10px; letter-spacing:3px;
+    color:rgba(255,204,68,.75); text-transform:uppercase;
+    pointer-events:none; opacity:0; transition:opacity .3s;
+  }
+  #badge.show { opacity:1; }
+
+  /* scanlines */
+  #scan {
+    position:fixed; inset:0; pointer-events:none; z-index:99;
+    background:repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(0,0,0,.045) 3px, rgba(0,0,0,.045) 4px
+    );
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div id="scan"></div>
+<div id="board">
+  <div class="lcars-bar top"></div>
+  <div class="lcars-bar bottom"></div>
+  <div class="lcars-side left"></div>
+  <div class="lcars-side right"></div>
+  <div id="header">STARFLEET PERSONNEL SELECTION SYSTEM · LCARS 4.7</div>
+  <div id="footer-label">UNITED FEDERATION OF PLANETS · AUTHORIZED USE ONLY</div>
+
+  <div class="hint" id="hint">
+    <span class="delta">⬡</span>
+    <span class="big">Awaiting Crew Contact</span>
+    <span class="sub">
+      PLACE HANDS ON TERMINAL<br>
+      TWO OR MORE OFFICERS REQUIRED
+    </span>
+  </div>
+
+  <div id="badge">0 OFFICERS</div>
+  <div id="status"></div>
+  <div id="countdown"></div>
+  <button id="reset">⬡ &nbsp;New Selection</button>
+</div>
+
+<script>
+/* ── Starfield ── */
+(function(){
+  const cv = document.getElementById('stars');
+  const cx = cv.getContext('2d');
+  let S = [];
+  function resize(){
+    cv.width = innerWidth; cv.height = innerHeight;
+    S = Array.from({length:240}, ()=>({
+      x:Math.random()*cv.width, y:Math.random()*cv.height,
+      r:Math.random()*1.5+.2, a:Math.random()*Math.PI*2,
+      sp:Math.random()*.009+.003
+    }));
+  }
+  function draw(){
+    cx.clearRect(0,0,cv.width,cv.height);
+    S.forEach(s=>{
+      s.a += s.sp;
+      const al = (Math.sin(s.a)*.5+.5)*.8+.1;
+      cx.beginPath(); cx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      cx.fillStyle=`rgba(210,225,255,${al})`; cx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  resize(); addEventListener('resize',resize); draw();
+})();
+
+/* ── Chooser ── */
+(function(){
+  const board = document.getElementById('board');
+  const hint  = document.getElementById('hint');
+  const stat  = document.getElementById('status');
+  const cd    = document.getElementById('countdown');
+  const rst   = document.getElementById('reset');
+  const bdg   = document.getElementById('badge');
+
+  const colors = ['#f90','#fc3','#c6f','#48f','#f64','#4fc','#f4a','#af4','#4cf','#f9c'];
+  const msgs   = [
+    '— CREW MEMBER SELECTED —',
+    '— OFFICER DESIGNATED —',
+    '— ASSIGNMENT CONFIRMED —',
+    '— PERSONNEL IDENTIFIED —',
+    '— DUTY ROSTER UPDATED —'
+  ];
+
+  const T = new Map();
+  let ci=0, stab=null, cTimer=null, cdVal=0, locked=false, counting=false;
+
+  function badge(){
+    if(locked) return;
+    if(!T.size){ bdg.classList.remove('show'); return; }
+    bdg.textContent = T.size+(T.size===1?' OFFICER':' OFFICERS');
+    bdg.classList.add('show');
+  }
+
+  function add(id,x,y){
+    if(locked||counting) return;
+    const el = document.createElement('div');
+    el.className='finger';
+    const c = colors[ci%colors.length]; ci++;
+    el.style.setProperty('--c',c);
+    el.style.left=x+'px'; el.style.top=y+'px';
+    el.innerHTML='<div class="ring"></div><div class="sweep"></div><div class="sweep2"></div><div class="core"></div><div class="ico">⬡</div>';
+    board.appendChild(el);
+    T.set(id,{el,c,x,y});
+    hint.classList.add('hidden');
+    badge(); restart();
+  }
+
+  function move(id,x,y){
+    const t=T.get(id); if(!t) return;
+    t.x=x; t.y=y; t.el.style.left=x+'px'; t.el.style.top=y+'px';
+  }
+
+  function rem(id){
+    if(locked) return;
+    const t=T.get(id); if(!t) return;
+    if(counting){ t.el.classList.add('loser'); return; } // freeze during countdown
+    t.el.remove(); T.delete(id); badge();
+    if(!T.size){ hint.classList.remove('hidden'); ci=0; cancel(); }
+    else restart();
+  }
+
+  function restart(){
+    cancel(); if(T.size<2) return;
+    stab=setTimeout(()=>{ if(T.size>=2&&!locked) go(); },900);
+  }
+
+  function go(){
+    counting=true;
+    cdVal=3; T.forEach(t=>t.el.classList.add('counting'));
+    show(cdVal);
+    cTimer=setInterval(()=>{
+      cdVal--;
+      if(cdVal>0){ show(cdVal); }
+      else{ clearInterval(cTimer); cTimer=null; hide(); pick(); }
+    },750);
+  }
+
+  function cancel(){
+    if(stab){clearTimeout(stab);stab=null;}
+    if(cTimer){clearInterval(cTimer);cTimer=null;}
+    hide(); T.forEach(t=>t.el.classList.remove('counting'));
+  }
+
+  function show(n){
+    cd.textContent=n; cd.classList.remove('show');
+    void cd.offsetWidth; cd.classList.add('show');
+  }
+  function hide(){ cd.classList.remove('show'); }
+
+  function pick(){
+    locked=true; counting=false; bdg.classList.remove('show');
+    const ids=[...T.keys()];
+    const wid=ids[Math.floor(Math.random()*ids.length)];
+    const w=T.get(wid);
+    T.forEach((t,id)=>{
+      t.el.classList.remove('counting');
+      t.el.classList.add(id===wid?'winner':'loser');
+    });
+    stat.textContent = msgs[Math.floor(Math.random()*msgs.length)];
+    stat.style.color = w.c;
+    stat.style.textShadow = `0 0 22px ${w.c}`;
+    stat.classList.add('show');
+    rst.classList.add('show');
+    if(navigator.vibrate) navigator.vibrate([40,25,80,25,40,25,160]);
+  }
+
+  function reset(){
+    locked=false; counting=false;
+    T.forEach(t=>t.el.remove()); T.clear(); ci=0;
+    stat.classList.remove('show');
+    rst.classList.remove('show');
+    hint.classList.remove('hidden');
+    bdg.classList.remove('show');
+    cancel();
+  }
+
+  rst.addEventListener('click',  e=>{ e.stopPropagation(); reset(); });
+  rst.addEventListener('touchend',e=>{ e.stopPropagation(); e.preventDefault(); reset(); });
+
+  document.addEventListener('touchstart', e=>{ if(e.target===rst) return; e.preventDefault(); for(const t of e.changedTouches) add(t.identifier,t.clientX,t.clientY); },{passive:false});
+  document.addEventListener('touchmove',  e=>{ e.preventDefault(); for(const t of e.changedTouches) move(t.identifier,t.clientX,t.clientY); },{passive:false});
+  document.addEventListener('touchend',   e=>{ if(e.target===rst) return; e.preventDefault(); for(const t of e.changedTouches) rem(t.identifier); },{passive:false});
+  document.addEventListener('touchcancel',e=>{ for(const t of e.changedTouches) rem(t.identifier); },{passive:false});
+
+  const mid='m0'; let md=false;
+  document.addEventListener('mousedown', e=>{ if(e.target===rst) return; md=true; add(mid,e.clientX,e.clientY); });
+  document.addEventListener('mousemove', e=>{ if(md) move(mid,e.clientX,e.clientY); });
+  document.addEventListener('mouseup',   ()=>{ if(md){md=false;rem(mid);} });
+})();
+</script>
+</body>
+</html>
